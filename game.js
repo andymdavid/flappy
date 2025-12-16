@@ -77,6 +77,14 @@ let collisionFlash = {
     startTime: 0
 };
 
+// Start screen animation
+let startScreenAnimation = {
+    birdBobOffset: 0,
+    birdBobSpeed: 0.003, // Radians per millisecond
+    birdBobAmplitude: 8, // Pixels up and down
+    birdBaseY: 0 // Will be set in init
+};
+
 // FPS tracking
 let lastTime = 0;
 let fps = 0;
@@ -197,23 +205,24 @@ function renderScore() {
  * Reset game state for a new game
  */
 function resetGame() {
-    // Reset bird
+    // Reset bird to start position
     bird.y = canvas.height / 2 - bird.height / 2;
     bird.velocity = 0;
     bird.rotation = 0;
 
-    // Reset score
+    // Reset score and animations
     score = 0;
     newRecord = false;
     scoreAnimation.active = false;
     newRecordAnimation.active = false;
+    collisionFlash.active = false;
 
-    // Clear and recreate pipes
+    // Clear all pipes and regenerate initial pipes
     pipes = [];
     createPipe(400);
     createPipe(400 + PIPE_SPACING);
 
-    // Transition to PLAYING state
+    // Transition to PLAYING state (this enables bird physics and pipe movement)
     changeState(GameState.PLAYING);
 }
 
@@ -425,7 +434,9 @@ function update(deltaTime) {
     // Game logic will go here based on currentState
     switch (currentState) {
         case GameState.START:
-            // Start screen logic - bird stays at center
+            // Animate bird bobbing up and down
+            startScreenAnimation.birdBobOffset += startScreenAnimation.birdBobSpeed * (deltaTime * 1000);
+            bird.y = startScreenAnimation.birdBaseY + Math.sin(startScreenAnimation.birdBobOffset) * startScreenAnimation.birdBobAmplitude;
             break;
         case GameState.PLAYING:
             // Update pipes
@@ -610,21 +621,67 @@ function renderBird() {
  * Render start screen
  */
 function renderStartScreen() {
-    // Render pipes
+    // Render pipes (decorative, static)
     renderPipes();
 
     // Render the ground
     renderGround();
 
-    // Render the bird
+    // Render the bird (with bobbing animation)
     renderBird();
 
-    // Render instructions
-    ctx.fillStyle = '#000';
+    // Render game title "Flappy Bird"
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Title shadow for depth
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.font = 'bold 56px Arial';
+    ctx.fillText('Flappy Bird', canvas.width / 2 + 3, 103);
+
+    // Title stroke (thick black outline)
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 6;
+    ctx.font = 'bold 56px Arial';
+    ctx.strokeText('Flappy Bird', canvas.width / 2, 100);
+
+    // Title fill - gradient from yellow to orange
+    const gradient = ctx.createLinearGradient(canvas.width / 2, 70, canvas.width / 2, 130);
+    gradient.addColorStop(0, '#FFD700');
+    gradient.addColorStop(1, '#FFA500');
+    ctx.fillStyle = gradient;
+    ctx.fillText('Flappy Bird', canvas.width / 2, 100);
+
+    // Add white highlight on top of title
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeText('Flappy Bird', canvas.width / 2, 97);
+
+    ctx.restore();
+
+    // Render "Tap or Click to Start" with pulsing animation
+    const pulseTime = performance.now();
+    const pulseAlpha = 0.5 + Math.sin(pulseTime * 0.003) * 0.5; // Oscillates between 0 and 1
+    const pulseScale = 1.0 + Math.sin(pulseTime * 0.003) * 0.1; // Oscillates between 0.9 and 1.1
+
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2 + 80);
+    ctx.scale(pulseScale, pulseScale);
+
+    // Instruction text with shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+
+    ctx.fillStyle = `rgba(0, 0, 0, ${pulseAlpha})`;
     ctx.font = '24px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Press SPACE to Start', canvas.width / 2, canvas.height / 2);
-    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Tap or Click to Start', 0, 0);
+
+    ctx.restore();
 }
 
 /**
@@ -645,32 +702,85 @@ function renderGame() {
  * Render game over screen
  */
 function renderGameOver() {
-    // Render pipes
+    // Render pipes (frozen at death position)
     renderPipes();
 
     // Render the ground
     renderGround();
 
-    // Render the bird
+    // Render the bird (frozen at death position)
     renderBird();
 
-    // Render game over text
-    ctx.fillStyle = '#000';
-    ctx.font = 'bold 32px Arial';
+    // Semi-transparent black overlay to darken the screen
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Create a score panel background
+    const panelWidth = 280;
+    const panelHeight = 240;
+    const panelX = (canvas.width - panelWidth) / 2;
+    const panelY = (canvas.height - panelHeight) / 2 - 20;
+
+    // Draw panel background (light beige)
+    ctx.fillStyle = '#F5E6D3';
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+
+    // Draw panel border
+    ctx.strokeStyle = '#8B6914';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+
+    // Draw inner shadow for depth
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX + 4, panelY + 4, panelWidth - 8, panelHeight - 8);
+
+    ctx.save();
     ctx.textAlign = 'center';
-    ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 60);
 
-    // Render current score label and value
-    ctx.font = '20px Arial';
-    ctx.fillText('Score', canvas.width / 2, canvas.height / 2 - 10);
-    ctx.font = 'bold 32px Arial';
-    ctx.fillText(score.toString(), canvas.width / 2, canvas.height / 2 + 25);
+    // Render "Game Over" title
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
 
-    // Render high score label and value
-    ctx.font = '20px Arial';
-    ctx.fillText('Best', canvas.width / 2, canvas.height / 2 + 60);
-    ctx.font = 'bold 32px Arial';
-    ctx.fillText(highScore.toString(), canvas.width / 2, canvas.height / 2 + 95);
+    ctx.strokeStyle = '#8B0000';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 40px Arial';
+    ctx.strokeText('Game Over', canvas.width / 2, panelY + 45);
+
+    ctx.fillStyle = '#DC143C'; // Crimson red
+    ctx.fillText('Game Over', canvas.width / 2, panelY + 45);
+
+    ctx.shadowColor = 'transparent';
+
+    // Divider line
+    ctx.strokeStyle = '#8B6914';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(panelX + 30, panelY + 70);
+    ctx.lineTo(panelX + panelWidth - 30, panelY + 70);
+    ctx.stroke();
+
+    // Render current score
+    ctx.fillStyle = '#555';
+    ctx.font = '18px Arial';
+    ctx.fillText('Score', canvas.width / 2, panelY + 100);
+
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 36px Arial';
+    ctx.fillText(score.toString(), canvas.width / 2, panelY + 135);
+
+    // Render high score
+    ctx.fillStyle = '#555';
+    ctx.font = '18px Arial';
+    ctx.fillText('Best', canvas.width / 2, panelY + 165);
+
+    ctx.fillStyle = '#DAA520'; // Goldenrod for best score
+    ctx.font = 'bold 36px Arial';
+    ctx.fillText(highScore.toString(), canvas.width / 2, panelY + 200);
+
+    ctx.restore();
 
     // Render "NEW RECORD!" message if applicable
     if (newRecord && newRecordAnimation.active) {
@@ -684,16 +794,16 @@ function renderGameOver() {
             }
 
             // Pulsing scale effect
-            const scale = 1.0 + Math.sin((elapsed / 200) * Math.PI) * 0.1;
+            const scale = 1.0 + Math.sin((elapsed / 200) * Math.PI) * 0.15;
 
             ctx.save();
-            ctx.translate(canvas.width / 2, canvas.height / 2 + 130);
+            ctx.translate(canvas.width / 2, panelY - 30);
             ctx.scale(scale, scale);
 
             // Draw "NEW RECORD!" with outline
-            ctx.strokeStyle = `rgba(0, 0, 0, ${alpha})`;
-            ctx.lineWidth = 3;
-            ctx.font = 'bold 24px Arial';
+            ctx.strokeStyle = `rgba(139, 0, 0, ${alpha})`; // Dark red
+            ctx.lineWidth = 4;
+            ctx.font = 'bold 28px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.strokeText('NEW RECORD!', 0, 0);
@@ -701,18 +811,34 @@ function renderGameOver() {
             ctx.fillStyle = `rgba(255, 215, 0, ${alpha})`; // Gold color
             ctx.fillText('NEW RECORD!', 0, 0);
 
+            // Add sparkle effect
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText('★', -80, -5);
+            ctx.fillText('★', 80, -5);
+
             ctx.restore();
         } else {
             newRecordAnimation.active = false;
         }
     }
 
-    // Render restart instruction
-    ctx.fillStyle = '#000';
-    ctx.font = '16px Arial';
+    // Render restart instruction with pulsing animation
+    const pulseTime = performance.now();
+    const pulseAlpha = 0.6 + Math.sin(pulseTime * 0.004) * 0.4;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+
+    ctx.fillStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+    ctx.font = '20px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 170);
-    ctx.textAlign = 'left';
+    ctx.fillText('Click to Restart', canvas.width / 2, panelY + panelHeight + 40);
+
+    ctx.restore();
 }
 
 /**
@@ -766,6 +892,7 @@ function init() {
 
     // Position bird at center of canvas
     bird.y = canvas.height / 2 - bird.height / 2;
+    startScreenAnimation.birdBaseY = bird.y;
 
     // Create initial pipes - 2 pipe pairs on screen
     createPipe(400);
