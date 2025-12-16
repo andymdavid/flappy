@@ -40,6 +40,21 @@ const ground = {
     y: 0 // Will be set in init()
 };
 
+// Pipe constants
+const PIPE_WIDTH = 52;
+const PIPE_GAP = 150;
+const PIPE_COLOR = '#5DBE64';
+const PIPE_BORDER_COLOR = '#2D5F2E';
+const PIPE_LIP_HEIGHT = 30;
+const PIPE_LIP_EXTENSION = 4; // Extra width on each side for the lip
+const PIPE_SPEED = 2.5; // Pixels per frame
+const PIPE_SPACING = 300; // Horizontal spacing between pipes
+const GAP_MIN_Y = 125; // Minimum gap center Y position
+const GAP_MAX_Y = 475; // Maximum gap center Y position
+
+// Pipes array - each pipe is a pair (top and bottom)
+let pipes = [];
+
 // Collision flash effect
 let collisionFlash = {
     active: false,
@@ -147,7 +162,77 @@ function checkCollisions() {
         return true;
     }
 
+    // Check collision with pipes
+    for (let pipe of pipes) {
+        // Calculate gap boundaries
+        const gapTop = pipe.gapCenterY - PIPE_GAP / 2;
+        const gapBottom = pipe.gapCenterY + PIPE_GAP / 2;
+
+        // Check if bird's hitbox overlaps with pipe horizontally
+        const horizontalOverlap =
+            hitbox.x < pipe.x + PIPE_WIDTH &&
+            hitbox.x + hitbox.width > pipe.x;
+
+        if (horizontalOverlap) {
+            // Check collision with top pipe
+            const hitTopPipe = hitbox.y < gapTop;
+
+            // Check collision with bottom pipe
+            const hitBottomPipe = hitbox.y + hitbox.height > gapBottom;
+
+            if (hitTopPipe || hitBottomPipe) {
+                console.log('Hit pipe');
+                changeState(GameState.GAME_OVER);
+                collisionFlash.active = true;
+                collisionFlash.startTime = performance.now();
+                bird.velocity = 0;
+                return true;
+            }
+        }
+    }
+
     return false;
+}
+
+/**
+ * Create a new pipe at the specified x position
+ */
+function createPipe(x) {
+    // Random gap center Y between GAP_MIN_Y and GAP_MAX_Y
+    const gapCenterY = Math.random() * (GAP_MAX_Y - GAP_MIN_Y) + GAP_MIN_Y;
+
+    pipes.push({
+        x: x,
+        gapCenterY: gapCenterY
+    });
+}
+
+/**
+ * Update pipes (movement and spawning)
+ */
+function updatePipes() {
+    // Move pipes left
+    pipes.forEach(pipe => {
+        pipe.x -= PIPE_SPEED;
+    });
+
+    // Remove pipes that have moved off-screen
+    pipes = pipes.filter(pipe => {
+        const pipeRightEdge = pipe.x + PIPE_WIDTH;
+        return pipeRightEdge >= 0;
+    });
+
+    // Spawn new pipe when needed
+    if (pipes.length > 0) {
+        const rightmostPipe = pipes[pipes.length - 1];
+        // If the rightmost pipe has moved far enough left, spawn a new one
+        if (rightmostPipe.x < canvas.width - PIPE_SPACING) {
+            createPipe(canvas.width);
+        }
+    } else {
+        // If no pipes exist, create one
+        createPipe(canvas.width);
+    }
 }
 
 /**
@@ -197,11 +282,14 @@ function update(deltaTime) {
             // Start screen logic - bird stays at center
             break;
         case GameState.PLAYING:
+            // Update pipes
+            updatePipes();
+
             // Update bird physics
             updateBird();
             break;
         case GameState.GAME_OVER:
-            // Game over logic
+            // Game over logic - pipes and bird stop moving
             break;
     }
 }
@@ -241,6 +329,61 @@ function render() {
 
     // Always render FPS counter
     renderFPS();
+}
+
+/**
+ * Render a single pipe (top or bottom)
+ */
+function renderPipe(x, topY, bottomY) {
+    const pipeBodyWidth = PIPE_WIDTH;
+    const lipWidth = PIPE_WIDTH + (PIPE_LIP_EXTENSION * 2);
+
+    // Draw pipe body
+    ctx.fillStyle = PIPE_COLOR;
+    ctx.fillRect(x, topY, pipeBodyWidth, bottomY - topY);
+
+    // Draw pipe border
+    ctx.strokeStyle = PIPE_BORDER_COLOR;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, topY, pipeBodyWidth, bottomY - topY);
+
+    // Draw lip/cap at the bottom edge of the section
+    const lipY = bottomY - PIPE_LIP_HEIGHT;
+    const lipX = x - PIPE_LIP_EXTENSION;
+
+    // Lip fill
+    ctx.fillStyle = PIPE_COLOR;
+    ctx.fillRect(lipX, lipY, lipWidth, PIPE_LIP_HEIGHT);
+
+    // Lip border
+    ctx.strokeStyle = PIPE_BORDER_COLOR;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(lipX, lipY, lipWidth, PIPE_LIP_HEIGHT);
+
+    // Add 3D highlight effect on left side of lip
+    ctx.strokeStyle = '#7FD87F';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(lipX + 2, lipY);
+    ctx.lineTo(lipX + 2, lipY + PIPE_LIP_HEIGHT);
+    ctx.stroke();
+}
+
+/**
+ * Render all pipes
+ */
+function renderPipes() {
+    pipes.forEach(pipe => {
+        // Calculate gap boundaries
+        const gapTop = pipe.gapCenterY - PIPE_GAP / 2;
+        const gapBottom = pipe.gapCenterY + PIPE_GAP / 2;
+
+        // Render top pipe (from top of canvas to gap top)
+        renderPipe(pipe.x, 0, gapTop);
+
+        // Render bottom pipe (from gap bottom to ground)
+        renderPipe(pipe.x, gapBottom, ground.y);
+    });
 }
 
 /**
@@ -313,6 +456,9 @@ function renderBird() {
  * Render start screen
  */
 function renderStartScreen() {
+    // Render pipes
+    renderPipes();
+
     // Render the ground
     renderGround();
 
@@ -331,6 +477,9 @@ function renderStartScreen() {
  * Render game
  */
 function renderGame() {
+    // Render pipes
+    renderPipes();
+
     // Render the ground
     renderGround();
 
@@ -342,6 +491,9 @@ function renderGame() {
  * Render game over screen
  */
 function renderGameOver() {
+    // Render pipes
+    renderPipes();
+
     // Render the ground
     renderGround();
 
@@ -406,6 +558,10 @@ function init() {
 
     // Position bird at center of canvas
     bird.y = canvas.height / 2 - bird.height / 2;
+
+    // Create initial pipes - 2 pipe pairs on screen
+    createPipe(400);
+    createPipe(400 + PIPE_SPACING);
 
     // Setup input handlers
     setupInput();
