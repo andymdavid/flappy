@@ -72,15 +72,16 @@ const ground = {
 
 // Pipe constants
 const PIPE_WIDTH = 52;
-const PIPE_GAP = 150;
+const PIPE_GAP_MIN = 115; // Minimum gap size (tight but fair)
+const PIPE_GAP_MAX = 160; // Maximum gap size (more forgiving)
 const PIPE_COLOR = '#5DBE64';
 const PIPE_BORDER_COLOR = '#2D5F2E';
 const PIPE_LIP_HEIGHT = 30;
 const PIPE_LIP_EXTENSION = 4; // Extra width on each side for the lip
 const PIPE_SPEED = 2.5; // Pixels per frame (middle speed)
 const PIPE_SPACING = 300; // Horizontal spacing between pipes
-const GAP_MIN_Y = 125; // Minimum gap center Y position
-const GAP_MAX_Y = 475; // Maximum gap center Y position
+const GAP_MIN_Y = 120; // Minimum gap center Y position
+const GAP_MAX_Y = 420; // Maximum gap center Y position
 
 // Ground constants
 const GROUND_SPEED = 3.0; // Pixels per frame (fastest, foreground)
@@ -283,10 +284,10 @@ function jump() {
 }
 
 /**
- * Get bird's hitbox for collision detection (85% of visual size)
+ * Get bird's hitbox for collision detection (90% of visual size for more challenge)
  */
 function getBirdHitbox() {
-    const hitboxScale = 0.85;
+    const hitboxScale = 0.90;
     const hitboxWidth = bird.width * hitboxScale;
     const hitboxHeight = bird.height * hitboxScale;
     const offsetX = (bird.width - hitboxWidth) / 2;
@@ -332,9 +333,9 @@ function checkCollisions() {
 
     // Check collision with pipes
     for (let pipe of pipes) {
-        // Calculate gap boundaries
-        const gapTop = pipe.gapCenterY - PIPE_GAP / 2;
-        const gapBottom = pipe.gapCenterY + PIPE_GAP / 2;
+        // Calculate gap boundaries using this pipe's specific gap size
+        const gapTop = pipe.gapCenterY - pipe.gapSize / 2;
+        const gapBottom = pipe.gapCenterY + pipe.gapSize / 2;
 
         // Check if bird's hitbox overlaps with pipe horizontally
         const horizontalOverlap =
@@ -366,12 +367,22 @@ function checkCollisions() {
  * Create a new pipe at the specified x position
  */
 function createPipe(x) {
-    // Random gap center Y between GAP_MIN_Y and GAP_MAX_Y
-    const gapCenterY = Math.random() * (GAP_MAX_Y - GAP_MIN_Y) + GAP_MIN_Y;
+    // Random gap size between MIN and MAX for variety
+    const gapSize = Math.random() * (PIPE_GAP_MAX - PIPE_GAP_MIN) + PIPE_GAP_MIN;
+
+    // Calculate safe range for gap center based on gap size
+    // Ensure gap doesn't go off-screen top or into ground
+    const halfGap = gapSize / 2;
+    const minCenterY = GAP_MIN_Y + halfGap;
+    const maxCenterY = GAP_MAX_Y - halfGap;
+
+    // Random gap center Y within safe range
+    const gapCenterY = Math.random() * (maxCenterY - minCenterY) + minCenterY;
 
     pipes.push({
         x: x,
         gapCenterY: gapCenterY,
+        gapSize: gapSize, // Store the gap size for this pipe
         scored: false // Track if this pipe has been scored
     });
 }
@@ -634,9 +645,9 @@ function renderPipe(x, topY, bottomY) {
  */
 function renderPipes() {
     pipes.forEach(pipe => {
-        // Calculate gap boundaries
-        const gapTop = pipe.gapCenterY - PIPE_GAP / 2;
-        const gapBottom = pipe.gapCenterY + PIPE_GAP / 2;
+        // Calculate gap boundaries using this pipe's specific gap size
+        const gapTop = pipe.gapCenterY - pipe.gapSize / 2;
+        const gapBottom = pipe.gapCenterY + pipe.gapSize / 2;
 
         // Render top pipe (from top of canvas to gap top)
         renderPipe(pipe.x, 0, gapTop);
