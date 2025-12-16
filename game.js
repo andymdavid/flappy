@@ -2,6 +2,25 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Background image
+const backgroundImage = new Image();
+let backgroundLoaded = false;
+let backgroundX = 0; // Current scroll position
+const BACKGROUND_SPEED = 0.3; // Very slow parallax scroll (distant background)
+
+// Load background image
+backgroundImage.onload = () => {
+    backgroundLoaded = true;
+    console.log('Background image loaded successfully');
+    console.log(`Background dimensions: ${backgroundImage.width}x${backgroundImage.height}`);
+};
+backgroundImage.onerror = () => {
+    console.log('Background image failed to load - using default background');
+    backgroundLoaded = false;
+};
+// Set the background image source
+backgroundImage.src = 'images/background.png';
+
 // Game states
 const GameState = {
     START: 'START',
@@ -27,7 +46,11 @@ const bird = {
     height: 24,
     rotation: 0, // Current rotation in degrees
     color: '#FFD700', // Yellow/gold color
-    beakColor: '#FF8C00' // Orange beak
+    beakColor: '#FF8C00', // Orange beak
+    // Animation properties
+    animationFrame: 0, // Current frame (0, 1, or 2)
+    animationCounter: 0, // Counter for frame timing
+    animationSpeed: 6 // Change frame every 6 game frames (10 FPS at 60 FPS)
 };
 
 // Ground object
@@ -37,7 +60,9 @@ const ground = {
     dirtHeight: 80,
     grassColor: '#90EE90',
     dirtColor: '#DEB887',
-    y: 0 // Will be set in init()
+    y: 0, // Will be set in init()
+    scrollX: 0, // Scroll position for ground texture
+    stripeWidth: 8 // Width of grass stripes for texture pattern
 };
 
 // Pipe constants
@@ -47,10 +72,13 @@ const PIPE_COLOR = '#5DBE64';
 const PIPE_BORDER_COLOR = '#2D5F2E';
 const PIPE_LIP_HEIGHT = 30;
 const PIPE_LIP_EXTENSION = 4; // Extra width on each side for the lip
-const PIPE_SPEED = 2.5; // Pixels per frame
+const PIPE_SPEED = 2.5; // Pixels per frame (middle speed)
 const PIPE_SPACING = 300; // Horizontal spacing between pipes
 const GAP_MIN_Y = 125; // Minimum gap center Y position
 const GAP_MAX_Y = 475; // Maximum gap center Y position
+
+// Ground constants
+const GROUND_SPEED = 3.0; // Pixels per frame (fastest, foreground)
 
 // Pipes array - each pipe is a pair (top and bottom)
 let pipes = [];
@@ -217,6 +245,10 @@ function resetGame() {
     newRecordAnimation.active = false;
     collisionFlash.active = false;
 
+    // Reset background and ground positions
+    backgroundX = 0;
+    ground.scrollX = 0;
+
     // Clear all pipes and regenerate initial pipes
     pipes = [];
     createPipe(400);
@@ -363,6 +395,41 @@ function updateScore() {
 }
 
 /**
+ * Update background scrolling
+ */
+function updateBackground() {
+    if (!backgroundLoaded) return;
+
+    // Calculate the maximum scroll distance
+    const scale = canvas.height / backgroundImage.height;
+    const scaledWidth = backgroundImage.width * scale;
+    const maxScroll = -(scaledWidth - canvas.width);
+
+    // Scroll background very slowly (0.3 px/frame) for distant parallax effect
+    // Background should drift almost imperceptibly - creates depth
+    backgroundX -= BACKGROUND_SPEED;
+
+    // Stop scrolling when we reach the end of the background
+    // (don't loop - just let it stay at the final position)
+    if (backgroundX < maxScroll) {
+        backgroundX = maxScroll;
+    }
+}
+
+/**
+ * Update ground scrolling
+ */
+function updateGround() {
+    // Scroll ground at 3.0 px/frame (fastest, foreground element)
+    ground.scrollX -= GROUND_SPEED;
+
+    // Reset for seamless looping (loop every stripe width)
+    if (ground.scrollX <= -ground.stripeWidth) {
+        ground.scrollX = 0;
+    }
+}
+
+/**
  * Update pipes (movement and spawning)
  */
 function updatePipes() {
@@ -428,9 +495,26 @@ function updateBird() {
 }
 
 /**
+ * Update bird wing flap animation
+ */
+function updateBirdAnimation() {
+    // Increment animation counter
+    bird.animationCounter++;
+
+    // Change frame every animationSpeed frames (10 FPS at 60 FPS game)
+    if (bird.animationCounter >= bird.animationSpeed) {
+        bird.animationCounter = 0;
+        bird.animationFrame = (bird.animationFrame + 1) % 3; // Cycle through 0, 1, 2
+    }
+}
+
+/**
  * Update game logic
  */
 function update(deltaTime) {
+    // Update bird wing animation continuously in all states
+    updateBirdAnimation();
+
     // Game logic will go here based on currentState
     switch (currentState) {
         case GameState.START:
@@ -439,6 +523,12 @@ function update(deltaTime) {
             bird.y = startScreenAnimation.birdBaseY + Math.sin(startScreenAnimation.birdBobOffset) * startScreenAnimation.birdBobAmplitude;
             break;
         case GameState.PLAYING:
+            // Update background scrolling
+            updateBackground();
+
+            // Update ground scrolling
+            updateGround();
+
             // Update pipes
             updatePipes();
 
@@ -449,7 +539,7 @@ function update(deltaTime) {
             updateBird();
             break;
         case GameState.GAME_OVER:
-            // Game over logic - pipes and bird stop moving
+            // Game over logic - pipes, bird, background, and ground stop moving
             break;
     }
 }
@@ -552,7 +642,38 @@ function renderPipes() {
 }
 
 /**
- * Render the ground
+ * Render the scrolling background
+ */
+function renderBackground() {
+    if (!backgroundLoaded) {
+        // If background image isn't loaded, use the default light blue
+        return;
+    }
+
+    // Calculate scale to fit canvas height while maintaining aspect ratio
+    const scale = canvas.height / backgroundImage.height;
+    const scaledWidth = backgroundImage.width * scale;
+    const scaledHeight = canvas.height;
+
+    // Draw single wide background image (no looping)
+    ctx.drawImage(
+        backgroundImage,
+        backgroundX,
+        0,
+        scaledWidth,
+        scaledHeight
+    );
+
+    // If background has scrolled and left empty space on the right,
+    // fill with the light blue sky color
+    if (backgroundX + scaledWidth < canvas.width) {
+        ctx.fillStyle = '#87CEEB';
+        ctx.fillRect(backgroundX + scaledWidth, 0, canvas.width - (backgroundX + scaledWidth), canvas.height);
+    }
+}
+
+/**
+ * Render the ground with scrolling texture
  */
 function renderGround() {
     // Draw dirt layer
@@ -563,10 +684,14 @@ function renderGround() {
     ctx.fillStyle = ground.grassColor;
     ctx.fillRect(0, ground.y, canvas.width, ground.grassHeight);
 
-    // Add grass texture with simple vertical stripes
+    // Add scrolling grass texture with vertical stripes
     ctx.strokeStyle = '#7FD87F'; // Darker green for stripes
     ctx.lineWidth = 2;
-    for (let x = 0; x < canvas.width; x += 8) {
+
+    // Start from scroll position and draw stripes across the screen
+    // Add extra stripe before start to cover edge cases
+    const startX = ground.scrollX - ground.stripeWidth;
+    for (let x = startX; x < canvas.width + ground.stripeWidth; x += ground.stripeWidth) {
         ctx.beginPath();
         ctx.moveTo(x, ground.y);
         ctx.lineTo(x, ground.y + ground.grassHeight);
@@ -575,7 +700,7 @@ function renderGround() {
 }
 
 /**
- * Render the bird
+ * Render the bird with wing animation
  */
 function renderBird() {
     ctx.save();
@@ -592,6 +717,32 @@ function renderBird() {
     ctx.fillStyle = bird.color;
     ctx.beginPath();
     ctx.arc(0, 0, bird.width / 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw wings based on animation frame
+    ctx.fillStyle = '#FFB347'; // Slightly darker orange/gold for wings
+
+    // Wing positions based on animation frame
+    let wingYOffset = 0;
+    if (bird.animationFrame === 0) {
+        // Frame 0: Wings up
+        wingYOffset = -8;
+    } else if (bird.animationFrame === 1) {
+        // Frame 1: Wings middle (neutral)
+        wingYOffset = 0;
+    } else {
+        // Frame 2: Wings down
+        wingYOffset = 8;
+    }
+
+    // Left wing
+    ctx.beginPath();
+    ctx.ellipse(-bird.width / 3, wingYOffset, 8, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Right wing
+    ctx.beginPath();
+    ctx.ellipse(bird.width / 3, wingYOffset, 8, 12, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Draw beak (triangle pointing right)
@@ -621,6 +772,9 @@ function renderBird() {
  * Render start screen
  */
 function renderStartScreen() {
+    // Render scrolling background
+    renderBackground();
+
     // Render pipes (decorative, static)
     renderPipes();
 
@@ -688,6 +842,9 @@ function renderStartScreen() {
  * Render game
  */
 function renderGame() {
+    // Render scrolling background
+    renderBackground();
+
     // Render pipes
     renderPipes();
 
@@ -702,6 +859,9 @@ function renderGame() {
  * Render game over screen
  */
 function renderGameOver() {
+    // Render scrolling background (frozen)
+    renderBackground();
+
     // Render pipes (frozen at death position)
     renderPipes();
 
