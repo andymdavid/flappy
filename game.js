@@ -55,6 +55,21 @@ const GAP_MAX_Y = 475; // Maximum gap center Y position
 // Pipes array - each pipe is a pair (top and bottom)
 let pipes = [];
 
+// Score tracking
+let score = 0;
+let highScore = 0;
+let newRecord = false;
+let scoreAnimation = {
+    active: false,
+    startTime: 0,
+    duration: 300 // milliseconds
+};
+let newRecordAnimation = {
+    active: false,
+    startTime: 0,
+    duration: 2000 // milliseconds
+};
+
 // Collision flash effect
 let collisionFlash = {
     active: false,
@@ -69,10 +84,45 @@ let frameCount = 0;
 let fpsUpdateTime = 0;
 
 /**
+ * Load high score from localStorage
+ */
+function loadHighScore() {
+    const saved = localStorage.getItem('flappyBirdHighScore');
+    if (saved !== null) {
+        highScore = parseInt(saved, 10);
+        console.log('Loaded high score:', highScore);
+    }
+}
+
+/**
+ * Save high score to localStorage
+ */
+function saveHighScore() {
+    localStorage.setItem('flappyBirdHighScore', highScore.toString());
+    console.log('Saved high score:', highScore);
+}
+
+/**
  * Change game state and log the transition
  */
 function changeState(newState) {
     console.log(`State change: ${currentState} -> ${newState}`);
+
+    // Check for high score when entering GAME_OVER state
+    if (newState === GameState.GAME_OVER && currentState === GameState.PLAYING) {
+        if (score > highScore) {
+            highScore = score;
+            newRecord = true;
+            saveHighScore();
+
+            // Trigger new record animation
+            newRecordAnimation.active = true;
+            newRecordAnimation.startTime = performance.now();
+
+            console.log('NEW RECORD!', highScore);
+        }
+    }
+
     currentState = newState;
 }
 
@@ -100,12 +150,84 @@ function renderFPS() {
 }
 
 /**
+ * Render score at top-center
+ */
+function renderScore() {
+    // Calculate scale for animation effect
+    let scale = 1.0;
+    if (scoreAnimation.active) {
+        const elapsed = performance.now() - scoreAnimation.startTime;
+        if (elapsed < scoreAnimation.duration) {
+            // Scale up and back down (1.0 -> 1.5 -> 1.0)
+            const progress = elapsed / scoreAnimation.duration;
+            if (progress < 0.5) {
+                // First half: scale up
+                scale = 1.0 + (progress * 2) * 0.5;
+            } else {
+                // Second half: scale down
+                scale = 1.5 - ((progress - 0.5) * 2) * 0.5;
+            }
+        } else {
+            scoreAnimation.active = false;
+        }
+    }
+
+    ctx.save();
+
+    // Move to center top for score
+    ctx.translate(canvas.width / 2, 60);
+    ctx.scale(scale, scale);
+
+    // Draw black outline for score
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeText(score.toString(), 0, 0);
+
+    // Draw white fill for score
+    ctx.fillStyle = '#FFF';
+    ctx.fillText(score.toString(), 0, 0);
+
+    ctx.restore();
+}
+
+/**
+ * Reset game state for a new game
+ */
+function resetGame() {
+    // Reset bird
+    bird.y = canvas.height / 2 - bird.height / 2;
+    bird.velocity = 0;
+    bird.rotation = 0;
+
+    // Reset score
+    score = 0;
+    newRecord = false;
+    scoreAnimation.active = false;
+    newRecordAnimation.active = false;
+
+    // Clear and recreate pipes
+    pipes = [];
+    createPipe(400);
+    createPipe(400 + PIPE_SPACING);
+
+    // Transition to PLAYING state
+    changeState(GameState.PLAYING);
+}
+
+/**
  * Handle bird jump
  */
 function jump() {
     // Start game if in START state
     if (currentState === GameState.START) {
         changeState(GameState.PLAYING);
+    } else if (currentState === GameState.GAME_OVER) {
+        // Restart game if in GAME_OVER state
+        resetGame();
+        return;
     }
 
     // Apply jump velocity when in PLAYING state
@@ -203,7 +325,31 @@ function createPipe(x) {
 
     pipes.push({
         x: x,
-        gapCenterY: gapCenterY
+        gapCenterY: gapCenterY,
+        scored: false // Track if this pipe has been scored
+    });
+}
+
+/**
+ * Update score when bird passes pipes
+ */
+function updateScore() {
+    const birdCenterX = bird.x + bird.width / 2;
+
+    pipes.forEach(pipe => {
+        const pipeRightEdge = pipe.x + PIPE_WIDTH;
+
+        // Check if bird's center has passed the pipe's right edge
+        if (!pipe.scored && birdCenterX > pipeRightEdge) {
+            pipe.scored = true;
+            score++;
+
+            // Trigger score animation
+            scoreAnimation.active = true;
+            scoreAnimation.startTime = performance.now();
+
+            console.log('Score:', score);
+        }
     });
 }
 
@@ -285,6 +431,9 @@ function update(deltaTime) {
             // Update pipes
             updatePipes();
 
+            // Update score
+            updateScore();
+
             // Update bird physics
             updateBird();
             break;
@@ -325,6 +474,11 @@ function render() {
         } else {
             collisionFlash.active = false;
         }
+    }
+
+    // Render score (in PLAYING and GAME_OVER states)
+    if (currentState === GameState.PLAYING || currentState === GameState.GAME_OVER) {
+        renderScore();
     }
 
     // Always render FPS counter
@@ -502,11 +656,62 @@ function renderGameOver() {
 
     // Render game over text
     ctx.fillStyle = '#000';
-    ctx.font = '24px Arial';
+    ctx.font = 'bold 32px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2);
+    ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 60);
+
+    // Render current score label and value
+    ctx.font = '20px Arial';
+    ctx.fillText('Score', canvas.width / 2, canvas.height / 2 - 10);
+    ctx.font = 'bold 32px Arial';
+    ctx.fillText(score.toString(), canvas.width / 2, canvas.height / 2 + 25);
+
+    // Render high score label and value
+    ctx.font = '20px Arial';
+    ctx.fillText('Best', canvas.width / 2, canvas.height / 2 + 60);
+    ctx.font = 'bold 32px Arial';
+    ctx.fillText(highScore.toString(), canvas.width / 2, canvas.height / 2 + 95);
+
+    // Render "NEW RECORD!" message if applicable
+    if (newRecord && newRecordAnimation.active) {
+        const elapsed = performance.now() - newRecordAnimation.startTime;
+        if (elapsed < newRecordAnimation.duration) {
+            // Calculate alpha for fade out effect
+            const fadeStart = newRecordAnimation.duration * 0.7; // Start fading at 70%
+            let alpha = 1.0;
+            if (elapsed > fadeStart) {
+                alpha = 1.0 - ((elapsed - fadeStart) / (newRecordAnimation.duration - fadeStart));
+            }
+
+            // Pulsing scale effect
+            const scale = 1.0 + Math.sin((elapsed / 200) * Math.PI) * 0.1;
+
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2 + 130);
+            ctx.scale(scale, scale);
+
+            // Draw "NEW RECORD!" with outline
+            ctx.strokeStyle = `rgba(0, 0, 0, ${alpha})`;
+            ctx.lineWidth = 3;
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeText('NEW RECORD!', 0, 0);
+
+            ctx.fillStyle = `rgba(255, 215, 0, ${alpha})`; // Gold color
+            ctx.fillText('NEW RECORD!', 0, 0);
+
+            ctx.restore();
+        } else {
+            newRecordAnimation.active = false;
+        }
+    }
+
+    // Render restart instruction
+    ctx.fillStyle = '#000';
     ctx.font = '16px Arial';
-    ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 30);
+    ctx.textAlign = 'center';
+    ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 170);
     ctx.textAlign = 'left';
 }
 
@@ -552,6 +757,9 @@ function setupInput() {
  */
 function init() {
     console.log('Game starting...');
+
+    // Load high score from localStorage
+    loadHighScore();
 
     // Position ground at bottom of canvas
     ground.y = canvas.height - ground.height;
