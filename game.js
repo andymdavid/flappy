@@ -58,8 +58,13 @@ const ground = {
     height: 100,
     grassHeight: 20,
     dirtHeight: 80,
-    grassColor: '#90EE90',
-    dirtColor: '#DEB887',
+    // Enhanced colors
+    grassColorBase: '#6DBE45',      // Rich grass green
+    grassColorDark: '#5AA03A',      // Darker green for depth
+    grassColorLight: '#8FD66E',     // Light green highlights
+    dirtColorTop: '#B8936B',        // Lighter brown at top
+    dirtColorBottom: '#8B6F47',     // Darker brown at bottom
+    dirtColorRock: '#7A6A5A',       // Gray-brown for rocks
     y: 0, // Will be set in init()
     scrollX: 0, // Scroll position for ground texture
     stripeWidth: 8 // Width of grass stripes for texture pattern
@@ -673,30 +678,81 @@ function renderBackground() {
 }
 
 /**
- * Render the ground with scrolling texture
+ * Render the ground with enhanced scrolling texture
  */
 function renderGround() {
-    // Draw dirt layer
-    ctx.fillStyle = ground.dirtColor;
+    // === DIRT LAYER WITH GRADIENT ===
+    // Create vertical gradient for dirt (lighter at top, darker at bottom)
+    const dirtGradient = ctx.createLinearGradient(
+        0, ground.y + ground.grassHeight,
+        0, ground.y + ground.height
+    );
+    dirtGradient.addColorStop(0, ground.dirtColorTop);
+    dirtGradient.addColorStop(1, ground.dirtColorBottom);
+
+    ctx.fillStyle = dirtGradient;
     ctx.fillRect(0, ground.y + ground.grassHeight, canvas.width, ground.dirtHeight);
 
-    // Draw grass layer
-    ctx.fillStyle = ground.grassColor;
-    ctx.fillRect(0, ground.y, canvas.width, ground.grassHeight);
-
-    // Add scrolling grass texture with vertical stripes
-    ctx.strokeStyle = '#7FD87F'; // Darker green for stripes
-    ctx.lineWidth = 2;
-
-    // Start from scroll position and draw stripes across the screen
-    // Add extra stripe before start to cover edge cases
-    const startX = ground.scrollX - ground.stripeWidth;
-    for (let x = startX; x < canvas.width + ground.stripeWidth; x += ground.stripeWidth) {
+    // Add horizontal stratification lines (soil layers) - static, no scrolling
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+    ctx.lineWidth = 1;
+    const layerCount = 5;
+    for (let i = 1; i <= layerCount; i++) {
+        const layerY = ground.y + ground.grassHeight + (ground.dirtHeight / layerCount) * i;
         ctx.beginPath();
-        ctx.moveTo(x, ground.y);
-        ctx.lineTo(x, ground.y + ground.grassHeight);
+        ctx.moveTo(0, layerY);
+        ctx.lineTo(canvas.width, layerY);
         ctx.stroke();
     }
+
+    // === GRASS LAYER WITH GRADIENT ===
+    // Base grass layer with subtle gradient
+    const grassGradient = ctx.createLinearGradient(
+        0, ground.y,
+        0, ground.y + ground.grassHeight
+    );
+    grassGradient.addColorStop(0, ground.grassColorLight);
+    grassGradient.addColorStop(0.5, ground.grassColorBase);
+    grassGradient.addColorStop(1, ground.grassColorDark);
+
+    ctx.fillStyle = grassGradient;
+    ctx.fillRect(0, ground.y, canvas.width, ground.grassHeight);
+
+    // Dark shadow/lip at grass-dirt border for 3D effect
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(0, ground.y + ground.grassHeight - 2, canvas.width, 2);
+
+    // === SIMPLE SCROLLING GRASS TEXTURE ===
+    // Use a simple repeating pattern that tiles perfectly
+    ctx.strokeStyle = ground.grassColorDark;
+    ctx.lineWidth = 2;
+
+    // Draw grass blades with simple scrolling offset
+    const startX = ground.scrollX % ground.stripeWidth;
+    for (let x = startX; x < canvas.width + ground.stripeWidth; x += ground.stripeWidth) {
+        ctx.beginPath();
+        ctx.moveTo(x, ground.y + ground.grassHeight);
+        ctx.lineTo(x, ground.y);
+        ctx.stroke();
+    }
+
+    // Add lighter stripes in between for depth
+    ctx.strokeStyle = ground.grassColorLight;
+    ctx.lineWidth = 1;
+    for (let x = startX + 4; x < canvas.width + ground.stripeWidth; x += ground.stripeWidth) {
+        ctx.beginPath();
+        ctx.moveTo(x, ground.y + ground.grassHeight);
+        ctx.lineTo(x, ground.y + 5);
+        ctx.stroke();
+    }
+
+    // Add subtle horizontal highlight on top of grass
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, ground.y + 1);
+    ctx.lineTo(canvas.width, ground.y + 1);
+    ctx.stroke();
 }
 
 /**
