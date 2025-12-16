@@ -30,6 +30,23 @@ const bird = {
     beakColor: '#FF8C00' // Orange beak
 };
 
+// Ground object
+const ground = {
+    height: 100,
+    grassHeight: 20,
+    dirtHeight: 80,
+    grassColor: '#90EE90',
+    dirtColor: '#DEB887',
+    y: 0 // Will be set in init()
+};
+
+// Collision flash effect
+let collisionFlash = {
+    active: false,
+    duration: 200, // milliseconds
+    startTime: 0
+};
+
 // FPS tracking
 let lastTime = 0;
 let fps = 0;
@@ -83,6 +100,57 @@ function jump() {
 }
 
 /**
+ * Get bird's hitbox for collision detection (85% of visual size)
+ */
+function getBirdHitbox() {
+    const hitboxScale = 0.85;
+    const hitboxWidth = bird.width * hitboxScale;
+    const hitboxHeight = bird.height * hitboxScale;
+    const offsetX = (bird.width - hitboxWidth) / 2;
+    const offsetY = (bird.height - hitboxHeight) / 2;
+
+    return {
+        x: bird.x + offsetX,
+        y: bird.y + offsetY,
+        width: hitboxWidth,
+        height: hitboxHeight
+    };
+}
+
+/**
+ * Check for collisions
+ */
+function checkCollisions() {
+    const hitbox = getBirdHitbox();
+
+    // Check collision with ground
+    if (hitbox.y + hitbox.height >= ground.y) {
+        console.log('Hit ground');
+        changeState(GameState.GAME_OVER);
+        collisionFlash.active = true;
+        collisionFlash.startTime = performance.now();
+        // Position bird exactly on ground
+        bird.y = ground.y - hitbox.height - (bird.height - hitbox.height) / 2;
+        bird.velocity = 0;
+        return true;
+    }
+
+    // Check collision with ceiling (top of screen)
+    if (hitbox.y <= 0) {
+        console.log('Hit ceiling');
+        changeState(GameState.GAME_OVER);
+        collisionFlash.active = true;
+        collisionFlash.startTime = performance.now();
+        // Position bird at top
+        bird.y = -(bird.height - hitbox.height) / 2;
+        bird.velocity = 0;
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Update bird physics
  */
 function updateBird() {
@@ -110,6 +178,9 @@ function updateBird() {
             // Falling - tilt downward
             bird.rotation = Math.min(90, bird.velocity * 6);
         }
+
+        // Check for collisions
+        checkCollisions();
     } else if (currentState === GameState.START) {
         // Reset rotation in start state
         bird.rotation = 0;
@@ -155,8 +226,44 @@ function render() {
             break;
     }
 
+    // Render collision flash effect
+    if (collisionFlash.active) {
+        const elapsed = performance.now() - collisionFlash.startTime;
+        if (elapsed < collisionFlash.duration) {
+            // Calculate alpha based on elapsed time (fade out)
+            const alpha = 0.5 * (1 - elapsed / collisionFlash.duration);
+            ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        } else {
+            collisionFlash.active = false;
+        }
+    }
+
     // Always render FPS counter
     renderFPS();
+}
+
+/**
+ * Render the ground
+ */
+function renderGround() {
+    // Draw dirt layer
+    ctx.fillStyle = ground.dirtColor;
+    ctx.fillRect(0, ground.y + ground.grassHeight, canvas.width, ground.dirtHeight);
+
+    // Draw grass layer
+    ctx.fillStyle = ground.grassColor;
+    ctx.fillRect(0, ground.y, canvas.width, ground.grassHeight);
+
+    // Add grass texture with simple vertical stripes
+    ctx.strokeStyle = '#7FD87F'; // Darker green for stripes
+    ctx.lineWidth = 2;
+    for (let x = 0; x < canvas.width; x += 8) {
+        ctx.beginPath();
+        ctx.moveTo(x, ground.y);
+        ctx.lineTo(x, ground.y + ground.grassHeight);
+        ctx.stroke();
+    }
 }
 
 /**
@@ -206,6 +313,9 @@ function renderBird() {
  * Render start screen
  */
 function renderStartScreen() {
+    // Render the ground
+    renderGround();
+
     // Render the bird
     renderBird();
 
@@ -221,6 +331,9 @@ function renderStartScreen() {
  * Render game
  */
 function renderGame() {
+    // Render the ground
+    renderGround();
+
     // Render the bird
     renderBird();
 }
@@ -229,6 +342,13 @@ function renderGame() {
  * Render game over screen
  */
 function renderGameOver() {
+    // Render the ground
+    renderGround();
+
+    // Render the bird
+    renderBird();
+
+    // Render game over text
     ctx.fillStyle = '#000';
     ctx.font = '24px Arial';
     ctx.textAlign = 'center';
@@ -280,6 +400,9 @@ function setupInput() {
  */
 function init() {
     console.log('Game starting...');
+
+    // Position ground at bottom of canvas
+    ground.y = canvas.height - ground.height;
 
     // Position bird at center of canvas
     bird.y = canvas.height / 2 - bird.height / 2;
