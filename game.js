@@ -2,6 +2,127 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Audio setup
+let audioContext;
+let audioEnabled = true; // Can be toggled by user
+
+/**
+ * Initialize audio context (lazy initialization to avoid autoplay restrictions)
+ */
+function initAudio() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioContext;
+}
+
+/**
+ * Play jump sound - short ascending "whoosh" effect
+ */
+function playJumpSound() {
+    if (!audioEnabled) return;
+
+    try {
+        const ctx = initAudio();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        // Short ascending tone (150Hz -> 300Hz)
+        oscillator.frequency.setValueAtTime(150, ctx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.1);
+
+        // Quick fade out
+        gainNode.gain.setValueAtTime(0.15, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+
+        oscillator.type = 'sine';
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + 0.1);
+    } catch (e) {
+        console.log('Audio playback failed:', e);
+    }
+}
+
+/**
+ * Play score sound - pleasant "coin" chime
+ */
+function playScoreSound() {
+    if (!audioEnabled) return;
+
+    try {
+        const ctx = initAudio();
+
+        // Create two oscillators for a pleasant chime effect
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        osc1.connect(gainNode);
+        osc2.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        // Pleasant major third interval (C and E notes)
+        osc1.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+        osc2.frequency.setValueAtTime(659.25, ctx.currentTime); // E5
+
+        // Bell-like envelope
+        gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+
+        osc1.type = 'sine';
+        osc2.type = 'sine';
+
+        osc1.start(ctx.currentTime);
+        osc2.start(ctx.currentTime);
+        osc1.stop(ctx.currentTime + 0.3);
+        osc2.stop(ctx.currentTime + 0.3);
+    } catch (e) {
+        console.log('Audio playback failed:', e);
+    }
+}
+
+/**
+ * Play death sound - deep thud with impact
+ */
+function playDeathSound() {
+    if (!audioEnabled) return;
+
+    try {
+        const ctx = initAudio();
+
+        // Create a deep bass thud
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+
+        oscillator.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        // Very low frequency for deep thud (100Hz -> 30Hz)
+        oscillator.frequency.setValueAtTime(100, ctx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.15);
+
+        // Low-pass filter for muffled thud sound
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, ctx.currentTime);
+        filter.Q.setValueAtTime(1, ctx.currentTime);
+
+        // Sharp attack, very quick decay for impact
+        gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+
+        oscillator.type = 'sine'; // Smooth sine wave for clean thud
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + 0.15);
+    } catch (e) {
+        console.log('Audio playback failed:', e);
+    }
+}
+
 // Background image
 const backgroundImage = new Image();
 let backgroundLoaded = false;
@@ -119,11 +240,22 @@ let startScreenAnimation = {
     birdBaseY: 0 // Will be set in init
 };
 
-// FPS tracking
+// FPS tracking (debug mode)
 let lastTime = 0;
 let fps = 0;
 let frameCount = 0;
 let fpsUpdateTime = 0;
+let showFPS = false; // Toggle with 'F' key
+
+// State transition fade effect
+let stateTransition = {
+    active: false,
+    alpha: 0,
+    duration: 300,
+    startTime: 0,
+    fromState: null,
+    toState: null
+};
 
 /**
  * Load high score from localStorage
@@ -165,6 +297,13 @@ function changeState(newState) {
         }
     }
 
+    // Trigger state transition fade effect
+    stateTransition.active = true;
+    stateTransition.alpha = 0;
+    stateTransition.startTime = performance.now();
+    stateTransition.fromState = currentState;
+    stateTransition.toState = newState;
+
     currentState = newState;
 }
 
@@ -183,12 +322,45 @@ function updateFPS(currentTime) {
 }
 
 /**
- * Render FPS counter in top-left corner
+ * Render FPS counter in top-left corner (debug mode)
  */
 function renderFPS() {
-    ctx.fillStyle = '#000';
-    ctx.font = '16px Arial';
-    ctx.fillText(`FPS: ${fps}`, 10, 20);
+    if (!showFPS) return;
+
+    ctx.save();
+
+    // Semi-transparent background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(5, 5, 70, 25);
+
+    // FPS text with shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    ctx.shadowBlur = 2;
+    ctx.fillStyle = '#0F0';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`FPS: ${fps}`, 10, 22);
+
+    ctx.restore();
+}
+
+/**
+ * Render game info text in bottom-left corner
+ */
+function renderGameInfo() {
+    ctx.save();
+
+    // Info text with shadow for legibility
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('Press R to restart', 10, canvas.height - 10);
+
+    ctx.restore();
 }
 
 /**
@@ -280,6 +452,7 @@ function jump() {
     // Apply jump velocity when in PLAYING state
     if (currentState === GameState.PLAYING) {
         bird.velocity = JUMP_VELOCITY;
+        playJumpSound(); // Play jump sound only during gameplay
     }
 }
 
@@ -313,6 +486,7 @@ function checkCollisions() {
         changeState(GameState.GAME_OVER);
         collisionFlash.active = true;
         collisionFlash.startTime = performance.now();
+        playDeathSound(); // Play death sound on collision
         // Position bird exactly on ground
         bird.y = ground.y - hitbox.height - (bird.height - hitbox.height) / 2;
         bird.velocity = 0;
@@ -325,6 +499,7 @@ function checkCollisions() {
         changeState(GameState.GAME_OVER);
         collisionFlash.active = true;
         collisionFlash.startTime = performance.now();
+        playDeathSound(); // Play death sound on collision
         // Position bird at top
         bird.y = -(bird.height - hitbox.height) / 2;
         bird.velocity = 0;
@@ -354,6 +529,7 @@ function checkCollisions() {
                 changeState(GameState.GAME_OVER);
                 collisionFlash.active = true;
                 collisionFlash.startTime = performance.now();
+                playDeathSound(); // Play death sound on collision
                 bird.velocity = 0;
                 return true;
             }
@@ -404,6 +580,9 @@ function updateScore() {
             // Trigger score animation
             scoreAnimation.active = true;
             scoreAnimation.startTime = performance.now();
+
+            // Play score sound
+            playScoreSound();
 
             console.log('Score:', score);
         }
@@ -593,12 +772,36 @@ function render() {
         }
     }
 
+    // Render state transition fade effect
+    if (stateTransition.active) {
+        const elapsed = performance.now() - stateTransition.startTime;
+        if (elapsed < stateTransition.duration) {
+            // Fade in effect (from transparent to opaque and back)
+            const progress = elapsed / stateTransition.duration;
+            let alpha;
+            if (progress < 0.5) {
+                // Fade to white
+                alpha = progress * 2 * 0.3;
+            } else {
+                // Fade from white
+                alpha = (1 - progress) * 2 * 0.3;
+            }
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        } else {
+            stateTransition.active = false;
+        }
+    }
+
     // Render score (in PLAYING and GAME_OVER states)
     if (currentState === GameState.PLAYING || currentState === GameState.GAME_OVER) {
         renderScore();
     }
 
-    // Always render FPS counter
+    // Render game info (always visible)
+    renderGameInfo();
+
+    // Render FPS counter (debug mode only)
     renderFPS();
 }
 
@@ -851,56 +1054,116 @@ function renderStartScreen() {
     // Render the bird (with bobbing animation)
     renderBird();
 
-    // Render game title "Flappy Bird"
+    // Render game title "Flappy Bird" with 8-bit font
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Title shadow for depth
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.font = 'bold 56px Arial';
-    ctx.fillText('Flappy Bird', canvas.width / 2 + 3, 103);
+    // Simple drop shadow for depth (no complex effects)
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 3;
 
-    // Title stroke (thick black outline)
+    // Title stroke (clean black outline)
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 6;
-    ctx.font = 'bold 56px Arial';
-    ctx.strokeText('Flappy Bird', canvas.width / 2, 100);
+    ctx.lineWidth = 4;
+    ctx.font = '28px "Press Start 2P"';
+    ctx.strokeText('Flappy Bird', canvas.width / 2, 120);
 
     // Title fill - gradient from yellow to orange
-    const gradient = ctx.createLinearGradient(canvas.width / 2, 70, canvas.width / 2, 130);
+    const gradient = ctx.createLinearGradient(canvas.width / 2, 105, canvas.width / 2, 135);
     gradient.addColorStop(0, '#FFD700');
-    gradient.addColorStop(1, '#FFA500');
+    gradient.addColorStop(0.5, '#FFA500');
+    gradient.addColorStop(1, '#FF8C00');
     ctx.fillStyle = gradient;
-    ctx.fillText('Flappy Bird', canvas.width / 2, 100);
-
-    // Add white highlight on top of title
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineWidth = 2;
-    ctx.strokeText('Flappy Bird', canvas.width / 2, 97);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillText('Flappy Bird', canvas.width / 2, 120);
 
     ctx.restore();
 
-    // Render "Tap or Click to Start" with pulsing animation
-    const pulseTime = performance.now();
-    const pulseAlpha = 0.5 + Math.sin(pulseTime * 0.003) * 0.5; // Oscillates between 0 and 1
-    const pulseScale = 1.0 + Math.sin(pulseTime * 0.003) * 0.1; // Oscillates between 0.9 and 1.1
-
+    // Render keyboard instructions
     ctx.save();
-    ctx.translate(canvas.width / 2, canvas.height / 2 + 80);
-    ctx.scale(pulseScale, pulseScale);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
-    // Instruction text with shadow
+    // Simple shadow for instruction text
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 4;
+    ctx.shadowBlur = 0;
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 2;
 
-    ctx.fillStyle = `rgba(0, 0, 0, ${pulseAlpha})`;
-    ctx.font = '24px Arial';
+    // Keyboard instruction
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.font = '16px "Press Start 2P"';
+    ctx.strokeText('SPACE to Jump', canvas.width / 2, canvas.height / 2 + 60);
+
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = '#FFF';
+    ctx.fillText('SPACE to Jump', canvas.width / 2, canvas.height / 2 + 60);
+
+    ctx.restore();
+
+    // Render audio toggle instruction
+    ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Tap or Click to Start', 0, 0);
+
+    // Shadow for audio text
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+
+    // Audio status text
+    const audioText = audioEnabled ? 'M to Mute' : 'M to Unmute';
+    const audioColor = audioEnabled ? '#FFF' : '#AAA';
+
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.font = '12px "Press Start 2P"';
+    ctx.strokeText(audioText, canvas.width / 2, canvas.height - 30);
+
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = audioColor;
+    ctx.fillText(audioText, canvas.width / 2, canvas.height - 30);
+
+    ctx.restore();
+
+    // Render "Tap to Start" with pulsing animation
+    const pulseTime = performance.now();
+    const pulseAlpha = 0.6 + Math.sin(pulseTime * 0.003) * 0.4; // Oscillates between 0.2 and 1
+    const pulseScale = 1.0 + Math.sin(pulseTime * 0.003) * 0.08; // Oscillates between 0.92 and 1.08
+
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2 + 100);
+    ctx.scale(pulseScale, pulseScale);
+
+    // Instruction text with outline and shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+
+    // Black outline
+    ctx.strokeStyle = `rgba(0, 0, 0, ${pulseAlpha})`;
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 26px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeText('Tap to Start', 0, 0);
+
+    // White fill
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+    ctx.fillText('Tap to Start', 0, 0);
 
     ctx.restore();
 }
@@ -1052,18 +1315,24 @@ function renderGameOver() {
 
     // Render restart instruction with pulsing animation
     const pulseTime = performance.now();
-    const pulseAlpha = 0.6 + Math.sin(pulseTime * 0.004) * 0.4;
+    const pulseAlpha = 0.7 + Math.sin(pulseTime * 0.004) * 0.3;
 
     ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 3;
-    ctx.shadowOffsetX = 1;
-    ctx.shadowOffsetY = 1;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
 
-    ctx.fillStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
-    ctx.font = '20px Arial';
+    // Outline for better legibility
+    ctx.strokeStyle = `rgba(0, 0, 0, ${pulseAlpha})`;
+    ctx.lineWidth = 3;
+    ctx.font = 'bold 22px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Click to Restart', canvas.width / 2, panelY + panelHeight + 40);
+    ctx.strokeText('Tap to Restart', canvas.width / 2, panelY + panelHeight + 40);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+    ctx.fillText('Tap to Restart', canvas.width / 2, panelY + panelHeight + 40);
 
     ctx.restore();
 }
@@ -1091,11 +1360,24 @@ function gameLoop(currentTime) {
  * Setup input event listeners
  */
 function setupInput() {
-    // Spacebar key handler
+    // Keyboard handlers
     document.addEventListener('keydown', (e) => {
         if (e.code === 'Space') {
             e.preventDefault(); // Prevent page scroll
             jump();
+        } else if (e.code === 'KeyR') {
+            // R key to restart
+            if (currentState === GameState.GAME_OVER) {
+                resetGame();
+            }
+        } else if (e.code === 'KeyF') {
+            // F key to toggle FPS counter
+            showFPS = !showFPS;
+            console.log('FPS counter:', showFPS ? 'ON' : 'OFF');
+        } else if (e.code === 'KeyM') {
+            // M key to toggle audio
+            audioEnabled = !audioEnabled;
+            console.log('Audio:', audioEnabled ? 'ON' : 'OFF');
         }
     });
 
@@ -1103,6 +1385,60 @@ function setupInput() {
     canvas.addEventListener('click', () => {
         jump();
     });
+
+    // Touch event handlers for mobile
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // Prevent default touch behavior (scrolling, zooming)
+        jump();
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+        e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault(); // Prevent scrolling while touching the canvas
+    }, { passive: false });
+
+    // Prevent context menu on long press
+    canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+    });
+}
+
+/**
+ * Resize canvas to fit screen while maintaining aspect ratio
+ */
+function resizeCanvas() {
+    const targetWidth = 400;
+    const targetHeight = 600;
+    const targetAspectRatio = targetWidth / targetHeight;
+
+    // Get available space
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    const windowAspectRatio = windowWidth / windowHeight;
+
+    let scale;
+    if (windowAspectRatio > targetAspectRatio) {
+        // Window is wider - fit to height
+        scale = windowHeight / targetHeight;
+    } else {
+        // Window is taller - fit to width
+        scale = windowWidth / targetWidth;
+    }
+
+    // Apply some padding (95% of available space)
+    scale *= 0.95;
+
+    // Set canvas display size (CSS)
+    canvas.style.width = `${targetWidth * scale}px`;
+    canvas.style.height = `${targetHeight * scale}px`;
+
+    // Canvas internal resolution stays at 400x600
+    // This maintains sharp graphics without blurriness
+
+    console.log(`Canvas scaled to ${Math.round(scale * 100)}% (${Math.round(targetWidth * scale)}x${Math.round(targetHeight * scale)})`);
 }
 
 /**
@@ -1113,6 +1449,14 @@ function init() {
 
     // Load high score from localStorage
     loadHighScore();
+
+    // Setup responsive canvas sizing
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', () => {
+        // Delay resize slightly for orientation change
+        setTimeout(resizeCanvas, 100);
+    });
 
     // Position ground at bottom of canvas
     ground.y = canvas.height - ground.height;
