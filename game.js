@@ -155,7 +155,7 @@ console.log('Game initialized with state:', currentState);
 
 // Physics constants
 const GRAVITY = 0.5;
-const JUMP_VELOCITY = -9;
+const JUMP_VELOCITY = -7;
 const TERMINAL_VELOCITY = 10;
 
 // Bird object
@@ -195,6 +195,8 @@ const ground = {
 const PIPE_WIDTH = 52;
 const PIPE_GAP_MIN = 115; // Minimum gap size (tight but fair)
 const PIPE_GAP_MAX = 160; // Maximum gap size (more forgiving)
+const PIPE_GAP_START = 200; // Starting gap size (easy for beginners)
+const PIPE_GAP_RAMP_SCORE = 10; // Score at which gaps reach normal difficulty
 const PIPE_COLOR = '#5DBE64';
 const PIPE_BORDER_COLOR = '#2D5F2E';
 const PIPE_LIP_HEIGHT = 30;
@@ -294,6 +296,18 @@ function changeState(newState) {
             newRecordAnimation.startTime = performance.now();
 
             console.log('NEW RECORD!', highScore);
+        }
+
+        // Show Nostr publish button
+        if (typeof window.showPublishButton === 'function') {
+            window.showPublishButton(score);
+        }
+    }
+
+    // Hide publish button when leaving GAME_OVER state
+    if (currentState === GameState.GAME_OVER && newState !== GameState.GAME_OVER) {
+        if (typeof window.hidePublishButton === 'function') {
+            window.hidePublishButton();
         }
     }
 
@@ -543,8 +557,16 @@ function checkCollisions() {
  * Create a new pipe at the specified x position
  */
 function createPipe(x) {
-    // Random gap size between MIN and MAX for variety
-    const gapSize = Math.random() * (PIPE_GAP_MAX - PIPE_GAP_MIN) + PIPE_GAP_MIN;
+    // Calculate gap size based on score (starts wide, gets narrower)
+    // Progress from 0 to 1 as score approaches PIPE_GAP_RAMP_SCORE
+    const progress = Math.min(score / PIPE_GAP_RAMP_SCORE, 1);
+
+    // Interpolate between start gap and normal gap range
+    const currentGapMin = PIPE_GAP_START - (PIPE_GAP_START - PIPE_GAP_MIN) * progress;
+    const currentGapMax = PIPE_GAP_START - (PIPE_GAP_START - PIPE_GAP_MAX) * progress;
+
+    // Random gap size between current MIN and MAX for variety
+    const gapSize = Math.random() * (currentGapMax - currentGapMin) + currentGapMin;
 
     // Calculate safe range for gap center based on gap size
     // Ensure gap doesn't go off-screen top or into ground

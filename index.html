@@ -6,6 +6,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Flappy Bird</title>
+    <link rel="icon" type="image/jpeg" href="images/icon.jpg">
+    <link rel="apple-touch-icon" href="images/icon.jpg">
+    <meta name="theme-color" content="#87CEEB">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -14,7 +17,130 @@
 <body>
     <div class="container">
         <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+        <!-- Nostr UI Overlay -->
+        <div id="nostr-ui">
+            <!-- Player info header -->
+            <div id="player-header">
+                <span id="player-npub">Loading...</span>
+                <button id="nip07-login" style="display: none;">Login with Extension</button>
+            </div>
+
+            <!-- Publish button (shown on game over) -->
+            <button id="publish-btn" style="display: none;">Share on Nostr</button>
+            <div id="publish-status" style="display: none;"></div>
+        </div>
     </div>
+
+    <script type="module" src="nostr.js"></script>
     <script src="game.js"></script>
+    <script type="module">
+        // Wait for both DOM and Nostr to be ready
+        async function initNostrUI() {
+            // Ensure player exists
+            const player = await NostrGame.ensurePlayer();
+            updatePlayerDisplay(player);
+
+            // Show NIP-07 button if extension available and using ephemeral key
+            updateNip07Button();
+        }
+
+        function updatePlayerDisplay(player) {
+            const npubEl = document.getElementById('player-npub');
+            if (player) {
+                const shortNpub = NostrGame.getShortNpub(player.npub);
+                const icon = player.isExtension ? '🔐' : '🔑';
+                npubEl.textContent = `${icon} ${shortNpub}`;
+                npubEl.title = player.npub;
+            } else {
+                npubEl.textContent = 'No player';
+            }
+        }
+
+        function updateNip07Button() {
+            const btn = document.getElementById('nip07-login');
+            const player = NostrGame.getPlayer();
+
+            // Show button if extension exists and player is using ephemeral key
+            if (NostrGame.hasNostrExtension() && player && !player.isExtension) {
+                btn.style.display = 'inline-block';
+            } else {
+                btn.style.display = 'none';
+            }
+        }
+
+        // NIP-07 login handler
+        document.getElementById('nip07-login').addEventListener('click', async (e) => {
+            const btn = e.target;
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                const player = await NostrGame.loginWithExtension();
+                updatePlayerDisplay(player);
+                updateNip07Button();
+            } catch (err) {
+                console.error('Login failed:', err);
+                btn.textContent = 'Login Failed';
+                setTimeout(() => {
+                    btn.textContent = 'Login with Extension';
+                    btn.disabled = false;
+                }, 2000);
+            }
+        });
+
+        // Publish handler
+        document.getElementById('publish-btn').addEventListener('click', async (e) => {
+            const btn = e.target;
+            const statusEl = document.getElementById('publish-status');
+
+            btn.disabled = true;
+            btn.textContent = 'Publishing...';
+            statusEl.style.display = 'block';
+            statusEl.textContent = 'Signing event...';
+            statusEl.className = '';
+
+            try {
+                const gameUrl = window.location.href;
+                const result = await NostrGame.publishGameResult(window.lastScore || 0, gameUrl);
+
+                const successCount = result.results.filter(r => r.success).length;
+                if (successCount > 0) {
+                    statusEl.textContent = `Published to ${successCount} relay(s)!`;
+                    statusEl.className = 'success';
+                    btn.textContent = 'Shared!';
+                } else {
+                    throw new Error('Failed to publish to any relay');
+                }
+            } catch (err) {
+                console.error('Publish failed:', err);
+                statusEl.textContent = `Error: ${err.message}`;
+                statusEl.className = 'error';
+                btn.textContent = 'Share on Nostr';
+                btn.disabled = false;
+            }
+        });
+
+        // Expose functions for game.js to call
+        window.showPublishButton = function(score) {
+            window.lastScore = score;
+            document.getElementById('publish-btn').style.display = 'block';
+            document.getElementById('publish-btn').disabled = false;
+            document.getElementById('publish-btn').textContent = 'Share on Nostr';
+            document.getElementById('publish-status').style.display = 'none';
+        };
+
+        window.hidePublishButton = function() {
+            document.getElementById('publish-btn').style.display = 'none';
+            document.getElementById('publish-status').style.display = 'none';
+        };
+
+        // Initialize when ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initNostrUI);
+        } else {
+            initNostrUI();
+        }
+    </script>
 </body>
 </html>
